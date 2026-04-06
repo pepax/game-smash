@@ -23,6 +23,7 @@ body {
   font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
   color: var(--text);
   background: linear-gradient(140deg, var(--bg-a), var(--bg-b));
+  overscroll-behavior: none;
 }
 
 body[data-theme="confetti"] {
@@ -30,24 +31,38 @@ body[data-theme="confetti"] {
   --bg-b: #2d115f;
   --accent: #ffd857;
   --glow: rgba(255, 100, 197, 0.45);
+  background-image:
+    radial-gradient(circle at 15% 10%, rgba(255, 221, 132, 0.25), transparent 32%),
+    linear-gradient(140deg, var(--bg-a), var(--bg-b));
 }
 body[data-theme="bubbles"] {
   --bg-a: #1e7ea5;
   --bg-b: #0f4460;
   --accent: #9df7ff;
   --glow: rgba(157, 247, 255, 0.45);
+  background-image:
+    radial-gradient(circle at 20% 15%, rgba(170, 248, 255, 0.22), transparent 35%),
+    radial-gradient(circle at 82% 78%, rgba(211, 248, 255, 0.2), transparent 30%),
+    linear-gradient(140deg, var(--bg-a), var(--bg-b));
 }
 body[data-theme="space"] {
   --bg-a: #0d1130;
   --bg-b: #02050f;
   --accent: #9f8cff;
   --glow: rgba(159, 140, 255, 0.45);
+  background-image:
+    radial-gradient(circle at 75% 22%, rgba(121, 184, 255, 0.14), transparent 30%),
+    radial-gradient(circle at 18% 70%, rgba(255, 209, 110, 0.1), transparent 24%),
+    linear-gradient(140deg, var(--bg-a), var(--bg-b));
 }
 body[data-theme="underwater"] {
   --bg-a: #085b74;
   --bg-b: #043645;
   --accent: #7effc7;
   --glow: rgba(126, 255, 199, 0.4);
+  background-image:
+    radial-gradient(circle at 18% 16%, rgba(186, 252, 255, 0.16), transparent 36%),
+    linear-gradient(165deg, var(--bg-a), var(--bg-b));
 }
 
 #app {
@@ -60,7 +75,7 @@ body[data-theme="underwater"] {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  touch-action: manipulation;
+  touch-action: none;
 }
 
 .overlay {
@@ -211,6 +226,17 @@ body[data-theme="underwater"] {
   border-radius: 5px;
   animation: spark-fly 800ms ease-out forwards;
 }
+
+.trail-dot {
+  border-radius: 50%;
+  opacity: 0.85;
+  filter: blur(0.4px) saturate(1.15);
+  animation: trail-fade 420ms ease-out forwards;
+}
+@keyframes trail-fade {
+  from { transform: scale(0.9); opacity: 0.85; }
+  to { transform: scale(1.8); opacity: 0; }
+}
 @keyframes spark-fly {
   from { transform: translate(0, 0) scale(1) rotate(0deg); opacity: 1; }
   to { transform: translate(var(--dx), var(--dy)) scale(0.2) rotate(180deg); opacity: 0; }
@@ -242,6 +268,17 @@ body[data-theme="underwater"] {
   filter: drop-shadow(0 6px 8px rgba(0,0,0,0.25));
   animation: emoji-float 1100ms ease-out forwards;
 }
+
+.ripple {
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.65);
+  background: radial-gradient(circle, rgba(255,255,255,0.18), transparent 60%);
+  animation: ripple-ring 620ms ease-out forwards;
+}
+@keyframes ripple-ring {
+  from { transform: scale(0.2); opacity: 0.85; }
+  to { transform: scale(1.5); opacity: 0; }
+}
 @keyframes emoji-float {
   from { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
   15% { opacity: 1; }
@@ -272,14 +309,21 @@ body[data-theme="underwater"] {
 }
 .panel-card {
   width: min(95vw, 620px);
-  border-radius: 1rem;
-  padding: 1rem;
-  background: var(--panel);
-  border: 2px solid rgba(255,255,255,0.2);
+  border-radius: 1.2rem;
+  padding: 1rem 1rem 1.15rem;
+  background: linear-gradient(180deg, rgba(21, 13, 42, 0.95), rgba(13, 10, 29, 0.92));
+  border: 2px solid rgba(255,255,255,0.28);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.38);
 }
 .panel-card h2 {
   text-align: center;
-  margin: 0.2rem 0 1rem;
+  margin: 0.2rem 0 0.2rem;
+}
+.panel-subtitle {
+  margin: 0 0 0.9rem;
+  text-align: center;
+  font-size: 0.92rem;
+  opacity: 0.88;
 }
 .panel-grid {
   display: grid;
@@ -294,9 +338,13 @@ body[data-theme="underwater"] {
   border-radius: 0.8rem;
   font-size: 1rem;
   font-weight: 700;
-  background: rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.16);
   color: white;
   padding: 0.7rem;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
+}
+.panel-btn:active {
+  transform: translateY(1px) scale(0.992);
 }
 .panel-btn.danger {
   background: rgba(255, 81, 81, 0.28);

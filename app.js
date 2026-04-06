@@ -62,7 +62,8 @@
     parentOpen: false,
     typedBuffer: "",
     lastInputAt: Date.now(),
-    audioCtx: null
+    audioCtx: null,
+    activePointers: new Map()
   };
 
   // ---------- Utilities ----------
@@ -115,6 +116,10 @@
     playSurface.querySelectorAll(".effect").forEach((n) => n.remove());
   }
 
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
   // ---------- Audio ----------
   function ensureAudio() {
     if (!state.audioCtx) {
@@ -126,7 +131,7 @@
     return state.audioCtx;
   }
 
-  function playBlip() {
+  function playBlip(strength = 1) {
     if (!state.soundOn) return;
     const ctx = ensureAudio();
     if (!ctx) return;
@@ -134,22 +139,38 @@
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
+    const t = ctx.currentTime;
+    const shapeByTheme = {
+      confetti: ["triangle", "sine"],
+      bubbles: ["sine"],
+      space: ["triangle", "square"],
+      underwater: ["sine", "triangle"]
+    };
+    const ranges = {
+      confetti: [340, 980],
+      bubbles: [240, 620],
+      space: [180, 520],
+      underwater: [200, 540]
+    };
+    const [low, high] = ranges[state.theme];
 
-    osc.type = "sine";
-    osc.frequency.value = rand(220, 880);
-    filter.type = "lowpass";
-    filter.frequency.value = rand(1000, 2400);
+    osc.type = pick(shapeByTheme[state.theme] || ["sine"]);
+    osc.frequency.value = rand(low, high);
+    osc.frequency.exponentialRampToValueAtTime(osc.frequency.value * rand(0.86, 1.28), t + 0.09);
+    filter.type = state.theme === "space" ? "bandpass" : "lowpass";
+    filter.frequency.value = rand(700, 2800);
 
     gain.gain.value = 0.001;
-    gain.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.14);
+    const peak = clamp(0.045 * strength, 0.028, 0.085);
+    gain.gain.exponentialRampToValueAtTime(peak, t + 0.018);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + rand(0.11, 0.18));
 
     osc.connect(filter);
     filter.connect(gain);
     gain.connect(ctx.destination);
 
-    osc.start();
-    osc.stop(ctx.currentTime + 0.16);
+    osc.start(t);
+    osc.stop(t + rand(0.13, 0.2));
   }
 
   // ---------- Effects ----------
@@ -224,35 +245,67 @@
     setTimeout(() => el.remove(), state.reducedMotion ? 200 : 920);
   }
 
+  function spawnRipple(x, y, scale = 1) {
+    const t = themes[state.theme];
+    const el = document.createElement("div");
+    el.className = "effect ripple";
+    const size = rand(52, 116) * scale;
+    el.style.left = `${x - size / 2}px`;
+    el.style.top = `${y - size / 2}px`;
+    el.style.width = `${size}px`;
+    el.style.height = `${size}px`;
+    el.style.borderColor = pick(t.colors);
+    playSurface.appendChild(el);
+    setTimeout(() => el.remove(), state.reducedMotion ? 220 : 620);
+  }
+
+  function spawnTrail(x, y, pressure = 0.5) {
+    const t = themes[state.theme];
+    const el = document.createElement("div");
+    el.className = "effect trail-dot";
+    const size = rand(10, 24) * (0.7 + pressure * 0.8);
+    el.style.left = `${x - size / 2}px`;
+    el.style.top = `${y - size / 2}px`;
+    el.style.width = `${size}px`;
+    el.style.height = `${size}px`;
+    el.style.background = pick(t.colors);
+    playSurface.appendChild(el);
+    setTimeout(() => el.remove(), state.reducedMotion ? 140 : 420);
+  }
+
   function spawnThemeEffect(x, y) {
     switch (state.theme) {
       case "bubbles":
         spawnBubbles(x, y);
+        spawnRipple(x, y, 0.9);
         spawnEmoji(x, y);
         break;
       case "space":
         spawnStar(x, y);
         spawnSpark(x, y);
+        spawnRipple(x, y, 1.12);
         break;
       case "underwater":
         spawnBubbles(x, y);
         spawnStar(x, y);
+        spawnRipple(x, y, 1.06);
         spawnEmoji(x, y);
         break;
       case "confetti":
       default:
         spawnSpark(x, y);
+        spawnRipple(x, y, 0.85);
         spawnEmoji(x, y);
         break;
     }
   }
 
-  function celebrateAt(x, y) {
+  function celebrateAt(x, y, strength = 1) {
     if (!state.started) return;
     markInput();
     spawnThemeEffect(x, y);
     spawnCenterPulse();
-    playBlip();
+    playBlip(strength);
     updateScore(1);
     if (Math.random() < 0.23) setMood();
   }
@@ -325,17 +378,48 @@
   }
 
   // ---------- Input handlers ----------
-  function getPointerPoint(evt) {
-    if (evt.touches && evt.touches[0]) {
-      return { x: evt.touches[0].clientX, y: evt.touches[0].clientY };
-    }
-    return { x: evt.clientX, y: evt.clientY };
+  function onPointerStart(evt) {
+    if (!state.started || state.parentOpen) return;
+    if (evt.cancelable) evt.preventDefault();
+    playSurface.setPointerCapture?.(evt.pointerId);
+    const pressure = evt.pressure || 0.5;
+    const now = performance.now();
+    state.activePointers.set(evt.pointerId, {
+      x: evt.clientX,
+      y: evt.clientY,
+      lastTrailAt: now,
+      lastBurstAt: now - 400
+    });
+    celebrateAt(evt.clientX, evt.clientY, 1 + pressure * 0.45);
   }
 
-  function onPointer(evt) {
+  function onPointerMove(evt) {
     if (!state.started || state.parentOpen) return;
-    const p = getPointerPoint(evt);
-    celebrateAt(p.x, p.y);
+    const pointer = state.activePointers.get(evt.pointerId);
+    if (!pointer) return;
+    if (evt.cancelable) evt.preventDefault();
+    const now = performance.now();
+    const dx = evt.clientX - pointer.x;
+    const dy = evt.clientY - pointer.y;
+    const distance = Math.hypot(dx, dy);
+    pointer.x = evt.clientX;
+    pointer.y = evt.clientY;
+
+    if (distance > 3 && now - pointer.lastTrailAt > (state.reducedMotion ? 52 : 26)) {
+      pointer.lastTrailAt = now;
+      spawnTrail(evt.clientX, evt.clientY, evt.pressure || 0.5);
+      if (Math.random() < 0.35) spawnStar(evt.clientX, evt.clientY);
+    }
+
+    if (distance > 24 && now - pointer.lastBurstAt > 95) {
+      pointer.lastBurstAt = now;
+      celebrateAt(evt.clientX, evt.clientY, 0.75 + clamp(distance / 40, 0.15, 0.8));
+    }
+  }
+
+  function onPointerEnd(evt) {
+    state.activePointers.delete(evt.pointerId);
+    if (evt.cancelable) evt.preventDefault();
   }
 
   function onKey(evt) {
@@ -424,8 +508,11 @@
   hotCorner.addEventListener("pointercancel", onCornerHoldEnd);
   hotCorner.addEventListener("pointerleave", onCornerHoldEnd);
 
-  playSurface.addEventListener("pointerdown", onPointer, { passive: true });
-  playSurface.addEventListener("touchstart", onPointer, { passive: true });
+  playSurface.addEventListener("pointerdown", onPointerStart, { passive: false });
+  playSurface.addEventListener("pointermove", onPointerMove, { passive: false });
+  playSurface.addEventListener("pointerup", onPointerEnd, { passive: false });
+  playSurface.addEventListener("pointercancel", onPointerEnd, { passive: false });
+  playSurface.addEventListener("pointerleave", onPointerEnd, { passive: false });
   window.addEventListener("keydown", onKey, { passive: false });
 
   const motionMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
