@@ -8,6 +8,7 @@
   const startBtn = document.getElementById("startBtn");
   const fsBtn = document.getElementById("fsBtn");
   const fsNote = document.getElementById("fsNote");
+  const fullscreenPrompt = document.getElementById("fullscreenPrompt");
   const muteBtn = document.getElementById("muteBtn");
   const scoreValue = document.getElementById("scoreValue");
   const moodBadge = document.getElementById("moodBadge");
@@ -25,12 +26,12 @@
 
   // ---------- State ----------
   const moods = [
-    "Tiny Joy Storm",
-    "Giggle Galaxy",
-    "Happy Tap Parade",
-    "Bouncy Color Party",
-    "Silly Sparkle Time",
-    "Wiggle Wonder Mode"
+    { min: 0, max: 12, text: "Tiny Joy Storm" },
+    { min: 13, max: 40, text: "Giggle Galaxy" },
+    { min: 41, max: 95, text: "Happy Tap Parade" },
+    { min: 96, max: 180, text: "Bouncy Color Party" },
+    { min: 181, max: 320, text: "Silly Sparkle Time" },
+    { min: 321, max: 999999, text: "Wiggle Wonder Mode" }
   ];
 
   const themes = {
@@ -63,7 +64,11 @@
     typedBuffer: "",
     lastInputAt: Date.now(),
     audioCtx: null,
-    activePointers: new Map()
+    activePointers: new Map(),
+    holdTimer: null,
+    holdTicker: null,
+    fullImmersiveWanted: false,
+    isSafari: /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
   };
 
   // ---------- Utilities ----------
@@ -78,12 +83,15 @@
   }
 
   function setMood() {
-    moodBadge.textContent = pick(moods);
+    const tier = moods.find((m) => state.score >= m.min && state.score <= m.max) || moods[moods.length - 1];
+    const suffixPool = ["!", "!!", " ✨", " 🌈", " 🎉"];
+    moodBadge.textContent = `${tier.text}${pick(suffixPool)}`;
   }
 
   function updateScore(increment = 1) {
     state.score += increment;
     scoreValue.textContent = String(state.score);
+    setMood();
   }
 
   function setSoundUI() {
@@ -118,6 +126,16 @@
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
+  }
+
+  function updateViewportHeightVar() {
+    const vh = window.innerHeight * 0.01;
+    document.documentElement.style.setProperty("--vh", `${vh}px`);
+  }
+
+  function showFullscreenPrompt(show, text = "") {
+    fullscreenPrompt.hidden = !show;
+    if (text) fullscreenPrompt.textContent = text;
   }
 
   // ---------- Audio ----------
@@ -307,36 +325,57 @@
     spawnCenterPulse();
     playBlip(strength);
     updateScore(1);
-    if (Math.random() < 0.23) setMood();
   }
 
   // ---------- Fullscreen ----------
-  async function enterFullscreen() {
+  function supportsNativeFullscreen() {
     const root = document.documentElement;
-    const can = !!(root.requestFullscreen || root.webkitRequestFullscreen);
-    if (!can) {
-      fsNote.textContent = "Fullscreen is not supported on this browser.";
+    return !!(root.requestFullscreen || root.webkitRequestFullscreen);
+  }
+
+  async function enterFullscreen(fromParentPanel = false) {
+    const root = document.documentElement;
+    if (!supportsNativeFullscreen()) {
+      fsNote.textContent = state.isSafari
+        ? "Safari limits fullscreen here, but play still runs in immersive mode."
+        : "Fullscreen is not supported on this browser.";
+      if (!fromParentPanel) state.fullImmersiveWanted = true;
+      showFullscreenPrompt(false);
       return;
     }
     try {
       if (root.requestFullscreen) {
-        await root.requestFullscreen();
+        await root.requestFullscreen({ navigationUI: "hide" });
       } else if (root.webkitRequestFullscreen) {
         root.webkitRequestFullscreen();
       }
+      state.fullImmersiveWanted = true;
       fsNote.textContent = "";
+      showFullscreenPrompt(false);
     } catch {
       fsNote.textContent = "Fullscreen was blocked. You can still play!";
+      showFullscreenPrompt(true);
     }
   }
 
   async function exitFullscreen() {
+    state.fullImmersiveWanted = false;
     try {
       if (document.fullscreenElement && document.exitFullscreen) {
         await document.exitFullscreen();
       }
     } catch {
-      // Ignore and continue gracefully.
+      // Continue gracefully
+    }
+    showFullscreenPrompt(false);
+  }
+
+  function onFullscreenChange() {
+    const isInFullscreen = !!document.fullscreenElement;
+    if (!isInFullscreen && state.started && state.fullImmersiveWanted) {
+      showFullscreenPrompt(true);
+    } else {
+      showFullscreenPrompt(false);
     }
   }
 
@@ -345,6 +384,7 @@
     state.parentOpen = true;
     parentPanel.classList.add("open");
     parentPanel.setAttribute("aria-hidden", "false");
+    onCornerHoldEnd();
   }
 
   function closeParentPanel() {
@@ -354,14 +394,26 @@
     state.typedBuffer = "";
   }
 
-  let holdTimer = null;
   function onCornerHoldStart() {
-    if (holdTimer) clearTimeout(holdTimer);
-    holdTimer = setTimeout(openParentPanel, 2000);
+    onCornerHoldEnd();
+    const start = Date.now();
+    state.holdTimer = setTimeout(() => {
+      hotCorner.style.opacity = "1";
+      openParentPanel();
+    }, 2000);
+
+    state.holdTicker = setInterval(() => {
+      const pct = clamp((Date.now() - start) / 2000, 0, 1);
+      hotCorner.style.opacity = String(0.55 + pct * 0.45);
+    }, 60);
   }
+
   function onCornerHoldEnd() {
-    if (holdTimer) clearTimeout(holdTimer);
-    holdTimer = null;
+    if (state.holdTimer) clearTimeout(state.holdTimer);
+    if (state.holdTicker) clearInterval(state.holdTicker);
+    state.holdTimer = null;
+    state.holdTicker = null;
+    hotCorner.style.opacity = "";
   }
 
   function updateTypedBuffer(key) {
@@ -456,15 +508,19 @@
   }, 1300);
 
   // ---------- Controls ----------
-  startBtn.addEventListener("click", () => {
+  startBtn.addEventListener("click", async () => {
     state.started = true;
     startOverlay.classList.add("hidden");
-    setMood();
     markInput();
     ensureAudio();
+    setMood();
+    if (state.isSafari) {
+      fsNote.textContent = "For Safari: Add to Home Screen for the most immersive play.";
+    }
+    await enterFullscreen();
   });
 
-  fsBtn.addEventListener("click", enterFullscreen);
+  fsBtn.addEventListener("click", () => enterFullscreen());
 
   muteBtn.addEventListener("click", () => {
     state.soundOn = !state.soundOn;
@@ -494,6 +550,7 @@
   resetBtn.addEventListener("click", () => {
     state.score = 0;
     scoreValue.textContent = "0";
+    setMood();
     clearTransientEffects();
   });
 
@@ -515,6 +572,18 @@
   playSurface.addEventListener("pointerleave", onPointerEnd, { passive: false });
   window.addEventListener("keydown", onKey, { passive: false });
 
+  window.addEventListener("resize", updateViewportHeightVar);
+  window.addEventListener("orientationchange", updateViewportHeightVar);
+  document.addEventListener("fullscreenchange", onFullscreenChange);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      updateViewportHeightVar();
+      if (state.started && state.fullImmersiveWanted && !document.fullscreenElement) {
+        showFullscreenPrompt(true);
+      }
+    }
+  });
+
   const motionMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
   motionMedia.addEventListener?.("change", (e) => {
     if (!state.parentOpen) {
@@ -524,6 +593,7 @@
   });
 
   // ---------- Init ----------
+  updateViewportHeightVar();
   applyReducedMotion();
   applyIdleDemoUI();
   setSoundUI();

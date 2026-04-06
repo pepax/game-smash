@@ -18,6 +18,7 @@
           <button id="fsBtn" class="big-btn alt">Go Fullscreen</button>
         </div>
         <p id="fsNote" class="hint" role="status"></p>
+        <p class="parent-hint">Parent Controls: hold top-left corner for 2 seconds or type <strong>PARENT</strong>.</p>
       </div>
     </section>
 
@@ -32,9 +33,15 @@
       <button id="muteBtn" class="pill btn" aria-pressed="false">🔊 Sound On</button>
     </header>
 
+    <div id="fullscreenPrompt" class="status-banner" aria-live="polite" hidden>
+      Fullscreen paused. Tap "Go Fullscreen" in Parent Controls to continue immersive play.
+    </div>
+
     <div id="centerPulse" aria-hidden="true"></div>
 
-    <div id="hotCorner" aria-label="Parent access corner" title="Hold for parent controls"></div>
+    <button id="hotCorner" aria-label="Parent access corner" title="Hold for parent controls">
+      <span aria-hidden="true">👪</span>
+    </button>
 
     <aside id="parentPanel" aria-hidden="true">
       <div class="panel-card">
